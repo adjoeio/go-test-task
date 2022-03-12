@@ -19,6 +19,7 @@ services:
 
   mysql:
     image: mysql:8.0
+    platform: linux/x86_64
     ports:
       - 3306:3306
     environment:
