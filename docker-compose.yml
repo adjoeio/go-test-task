@@ -1,4 +1,4 @@
-version: '3.6'
+version: '3.8'
 services:
   test-task:
     build:
@@ -19,7 +19,6 @@ services:
 
   mysql:
     image: mysql:8.0
-    platform: linux/x86_64/v8
     ports:
       - 3306:3306
     environment:
