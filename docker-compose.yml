@@ -15,7 +15,7 @@ services:
       - awscli
     volumes:
       - ./:/go/src/adjoe.io
-    command: ["/bin/sh", "-c", "gin -t test-task/src run"]
+    command: ["/bin/sh", "-c", "gin --buildArgs=\"-buildvcs=false\" -t test-task/src run"]
 
   mysql:
     image: mysql:8.0
@@ -30,7 +30,7 @@ services:
       - adjoe
 
   localstack:
-    image: localstack/localstack:latest
+    image: localstack/localstack:3.2
     user: root
     environment:
       - DATA_DIR=/tmp/localstack/data
