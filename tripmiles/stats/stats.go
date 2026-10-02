@@ -1,12 +1,13 @@
-// Package stats is the shared counter service. Owned by the Platform team.
+// Package stats is the shared counter service. The Platform team owns it.
 //
-// It remembers how many bookings each deal has had and how much money partners
-// have confirmed. The app runs on several servers, and all of them use this one
-// service. Each server talks to it through its own Client.
+// The service counts the bookings of each deal. It also keeps the confirmed
+// spend: the money that partners have confirmed. The app runs on several
+// servers. All servers use this one service. Each server uses its own Client.
 //
-// Every question a Client asks travels over the network. In real life each
-// question takes about 1 ms, and sometimes there is no answer. The simulator
-// counts the questions and adds 1 ms for each. Recording a booking is not a question.
+// Each request from a Client goes over the network. In production, one request
+// takes about 1 ms. Sometimes the service does not answer a request.
+// The simulator counts the requests and adds 1 ms for each request.
+// Recording a booking is not counted as a request.
 package stats
 
 import (
@@ -14,13 +15,13 @@ import (
 	"sync"
 )
 
-// ErrNoAnswer means the service did not answer this question.
+// ErrNoAnswer means that the service did not answer the request.
 var ErrNoAnswer = errors.New("the shared counter service did not answer")
 
 type dealCounters struct {
 	bookingsToday, bookingsTotal       int64
-	bookedTodayCents, bookedTotalCents int64 // value of every booking, confirmed or not
-	confirmedTodayCents                int64 // value the partner has confirmed so far
+	bookedTodayCents, bookedTotalCents int64 // value of all bookings, confirmed and unconfirmed
+	confirmedTodayCents                int64 // confirmed spend
 	confirmedTotalCents                int64
 }
 
@@ -29,9 +30,10 @@ type booking struct {
 	cents             int64
 }
 
-// Service is the shared counter service itself.
+// Service is the shared counter service.
 type Service struct {
-	// FailEveryNth makes every Nth question of each Client get no answer. 0 means always answer.
+	// If FailEveryNth is N, the service does not answer every Nth request of each Client.
+	// If FailEveryNth is 0, the service answers every request.
 	FailEveryNth int
 
 	mu                sync.Mutex
@@ -56,8 +58,9 @@ func (s *Service) deal(id string) *dealCounters {
 	return s.deals[id]
 }
 
-// ConfirmAllButNewest is called by partners. They confirm every waiting booking
-// except the newest n, because confirmations arrive a few minutes late.
+// ConfirmAllButNewest confirms all unconfirmed bookings except the newest n.
+// Partners call it. The newest bookings stay unconfirmed because
+// confirmations arrive a few minutes after the booking.
 func (s *Service) ConfirmAllButNewest(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -71,7 +74,7 @@ func (s *Service) ConfirmAllButNewest(n int) {
 	}
 }
 
-// Client is one app server's connection to the shared service.
+// Client is the connection of one app server to the shared counter service.
 type Client struct {
 	svc   *Service
 	calls int
@@ -79,7 +82,7 @@ type Client struct {
 
 func (s *Service) NewClient() *Client { return &Client{svc: s} }
 
-// Calls is how many questions this Client has asked so far.
+// Calls returns the number of requests that this Client has sent.
 func (c *Client) Calls() int { return c.calls }
 
 func (c *Client) ask() error {
@@ -90,8 +93,8 @@ func (c *Client) ask() error {
 	return nil
 }
 
-// RecordBooking adds one booking and the price the partner pays for it.
-// The booking waits for the partner's confirmation.
+// RecordBooking adds one booking and the amount that the partner pays for it.
+// The booking stays unconfirmed until the partner confirms it.
 func (c *Client) RecordBooking(dealID, partnerID string, cents int64) {
 	s := c.svc
 	s.mu.Lock()
@@ -105,7 +108,9 @@ func (c *Client) RecordBooking(dealID, partnerID string, cents int64) {
 	s.waitingForConfirm = append(s.waitingForConfirm, booking{dealID, partnerID, cents})
 }
 
-// The next five methods each ask one question about one deal or partner.
+// Each of the next five methods sends one request about one deal or one partner.
+// Each method returns confirmed spend or a booking count. It does not return
+// the value of unconfirmed bookings.
 
 func (c *Client) ConfirmedTodayCents(dealID string) (int64, error) {
 	return c.one(func(s *Service) int64 { return s.deal(dealID).confirmedTodayCents })
@@ -136,22 +141,22 @@ func (c *Client) one(read func(*Service) int64) (int64, error) {
 	return read(c.svc), nil
 }
 
-// DealNumbers are all the numbers the service has for one deal.
+// DealNumbers holds all the numbers that the service has for one deal.
 type DealNumbers struct {
 	BookingsToday, BookingsTotal       int64
-	BookedTodayCents, BookedTotalCents int64 // value of every booking, confirmed or not
-	ConfirmedTodayCents                int64
-	ConfirmedTotalCents                int64
+	BookedTodayCents, BookedTotalCents int64 // value of all bookings, confirmed and unconfirmed
+	ConfirmedTodayCents                int64 // confirmed spend today
+	ConfirmedTotalCents                int64 // confirmed spend in total
 }
 
-// Snapshot is the answer to one big question about many deals and partners at once.
+// Snapshot holds the numbers for many deals and partners. One request returns it.
 type Snapshot struct {
 	Deals                      map[string]DealNumbers
-	PartnerBookedTodayCents    map[string]int64 // value of every booking, confirmed or not
-	PartnerConfirmedTodayCents map[string]int64
+	PartnerBookedTodayCents    map[string]int64 // value of all bookings today, confirmed and unconfirmed
+	PartnerConfirmedTodayCents map[string]int64 // confirmed spend today
 }
 
-// Snapshot asks one question and gets the numbers for all these deals and partners.
+// Snapshot sends one request. It returns the numbers for all these deals and partners.
 func (c *Client) Snapshot(dealIDs, partnerIDs []string) (Snapshot, error) {
 	if err := c.ask(); err != nil {
 		return Snapshot{}, err
@@ -179,8 +184,8 @@ func (c *Client) Snapshot(dealIDs, partnerIDs []string) (Snapshot, error) {
 	return snap, nil
 }
 
-// TrueNumbers is used only by the simulator to check the results of the day.
-// It reads the real numbers directly. App code must ask through a Client.
+// TrueNumbers is for the simulator only. The simulator uses it to check the day.
+// It reads the numbers directly and sends no request. App code must use a Client.
 func (s *Service) TrueNumbers(dealID string) DealNumbers {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,7 +197,7 @@ func (s *Service) TrueNumbers(dealID string) DealNumbers {
 	}
 }
 
-// TruePartnerBookedTodayCents is used only by the simulator, like TrueNumbers.
+// TruePartnerBookedTodayCents is for the simulator only, like TrueNumbers.
 func (s *Service) TruePartnerBookedTodayCents(partnerID string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1,29 +1,32 @@
-// Package deals keeps the settings of every deal and partner.
-// Owned by the Partner Management team. You can read it, but you should not need to change it.
+// Package deals stores the settings of every deal and every partner.
+// The Partner Management team owns this package. You can read it.
+// You should not need to change it.
 package deals
 
 import "sort"
 
-// A Deal is an offer from a travel company (the partner), for example a cheap flight.
-// Money is in cents: 400 means $4.00.
+// A Deal is an offer from a partner, for example a cheap flight.
+// A partner is a travel company. All money is in cents: 400 means $4.00.
 type Deal struct {
 	ID        string
 	Name      string
 	PartnerID string
-	Countries []string // the countries where travellers can see this deal
+	Countries []string // Travellers in these countries can see the deal.
 
-	// PriceCents is what the partner pays us for each booking.
-	// Some countries have a different price, for example Germany.
+	// PriceCents is the amount the partner pays us for one booking.
+	// CountryPriceCents replaces that amount in some countries.
 	PriceCents        int64
 	CountryPriceCents map[string]int64
 
-	// The most the partner will pay us for this deal in one day, and in total.
-	// 0 means there is no limit.
+	// DailyBudgetCents is the most the partner pays for this deal in one day.
+	// TotalBudgetCents is the most the partner pays for this deal in total.
+	// A value of 0 means that there is no budget.
 	DailyBudgetCents int64
 	TotalBudgetCents int64
 }
 
-// PriceIn returns what the partner pays us for one booking from a traveller in this country.
+// PriceIn returns the amount the partner pays us for one booking
+// from a traveller in this country.
 func (d Deal) PriceIn(country string) int64 {
 	if p, ok := d.CountryPriceCents[country]; ok {
 		return p
@@ -31,14 +34,15 @@ func (d Deal) PriceIn(country string) int64 {
 	return d.PriceCents
 }
 
-// A Partner can set one daily limit for all its deals together. 0 means no limit.
+// A Partner can set a partner daily limit. This is the most the partner pays
+// for all its deals together in one day. A value of 0 means that there is no limit.
 type Partner struct {
 	ID              string
 	Name            string
 	DailyLimitCents int64
 }
 
-// Store holds the deals and partners. It does not change while the app runs.
+// Store holds the deals and the partners. It does not change while the app runs.
 type Store struct {
 	deals    []Deal
 	partners map[string]Partner
@@ -67,6 +71,7 @@ func (s *Store) AvailableIn(country string) []Deal {
 	return out
 }
 
+// Partner returns the settings of one partner.
 func (s *Store) Partner(id string) Partner {
 	return s.partners[id]
 }

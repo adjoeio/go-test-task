@@ -2,11 +2,10 @@ package feed
 
 import "tripmiles/deals"
 
-// dealBudgetCheck is Check 1. It leaves out deals that have used up their
-// daily budget or their total budget.
+// dealBudgetCheck removes each deal that has used its daily budget or its total budget.
 //
-// For each deal it asks the shared counter service four questions:
-// confirmed money and bookings, for today and in total.
+// For each deal, it sends four requests to the shared counter service:
+// confirmed spend today, bookings today, confirmed spend in total, and bookings in total.
 func (f *Feed) dealBudgetCheck(ds []deals.Deal) []deals.Deal {
 	var keep []deals.Deal
 	for _, d := range ds {
@@ -15,7 +14,7 @@ func (f *Feed) dealBudgetCheck(ds []deals.Deal) []deals.Deal {
 		confirmedTotal, err3 := f.Stats.ConfirmedTotalCents(d.ID)
 		bookingsTotal, err4 := f.Stats.BookingsTotal(d.ID)
 		if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-			// The service did not answer. Keep the deal rather than hide it.
+			// The service did not answer. The check keeps the deal.
 			keep = append(keep, d)
 			continue
 		}
@@ -30,26 +29,27 @@ func (f *Feed) dealBudgetCheck(ds []deals.Deal) []deals.Deal {
 	return keep
 }
 
-// budgetUsedUp says whether a budget has been reached.
+// budgetUsedUp returns true if a budget is used.
 //
-// It looks at the money the partner has confirmed. Confirmations arrive late,
-// so it also makes a backup guess: bookings times the price. To avoid hiding
-// deals too early, the guess only counts above 1.5 times the budget.
+// First, it compares the confirmed spend with the budget.
+// Confirmations arrive late, so it also makes a backup estimate:
+// the number of bookings multiplied by the price.
+// The estimate counts only if it is at least 1.5 times the budget.
+// The 1.5 factor stops the check from removing deals too early.
 func budgetUsedUp(budgetCents, confirmedCents, bookings, priceCents int64) bool {
 	if budgetCents == 0 {
-		return false // no budget set
+		return false // There is no budget.
 	}
 	if confirmedCents >= budgetCents {
 		return true
 	}
-	guessCents := bookings * priceCents
-	return guessCents*2 >= budgetCents*3 // guess >= 1.5 x budget
+	estimateCents := bookings * priceCents
+	return estimateCents*2 >= budgetCents*3 // estimate >= 1.5 x budget
 }
 
-// partnerLimitCheck is Check 2. It leaves out every deal of a partner that has
-// used up its daily limit for all its deals together.
+// partnerLimitCheck removes all deals of each partner that has used its partner daily limit.
 //
-// For each deal it asks the shared counter service one question.
+// For each deal, it sends one request to the shared counter service.
 func (f *Feed) partnerLimitCheck(ds []deals.Deal) []deals.Deal {
 	var keep []deals.Deal
 	for _, d := range ds {

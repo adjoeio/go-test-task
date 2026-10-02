@@ -1,4 +1,5 @@
-// Package feed builds the list of deals a traveller sees. Owned by the Offers team (your team).
+// Package feed builds the list of deals that a traveller sees.
+// The Offers team owns this package. The Offers team is your team.
 package feed
 
 import (
@@ -14,8 +15,8 @@ type Feed struct {
 	Stats *stats.Client
 }
 
-// List is called every time a traveller opens the app.
-// It returns the deals the traveller may see, best paying first.
+// List runs each time a traveller opens the app.
+// It returns the deals that the traveller can see. The deal that pays most is first.
 func (f *Feed) List(country string) []deals.Deal {
 	ds := f.Deals.AvailableIn(country)
 	ds = f.dealBudgetCheck(ds)

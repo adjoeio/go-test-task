@@ -1,6 +1,6 @@
 # go-test-task
 
-> **v4:** the pre-interview task is in [`tripmiles/`](tripmiles/README.md). It needs only Go, no Docker.
+> **v4:** The pre-interview task is in [`tripmiles/`](tripmiles/README.md). You need only Go. You do not need Docker.
 
 **how to use**
 

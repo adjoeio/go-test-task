@@ -1,4 +1,4 @@
-// Command sim plays one busy day of TripMiles and checks the four rules from README.md.
+// Command sim runs one busy day of TripMiles. Then it checks the four rules in README.md.
 //
 //	go run ./cmd/sim
 package main
@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	appOpens  = 3000 // travellers opening the app during the day
-	servers   = 4    // app servers, all sharing one counter service
-	waiting   = 150  // partners confirm all bookings except the newest 150
-	failEvery = 100  // every 100th question to the counter service gets no answer
-	msPerAsk  = 1    // each question to the counter service takes about 1 ms
+	appOpens     = 3000 // number of app opens in the day
+	servers      = 4    // number of app servers; all use one shared counter service
+	unconfirmed  = 150  // partners confirm all bookings except the newest 150
+	failEvery    = 100  // the service does not answer every 100th request
+	msPerRequest = 1    // one request to the service takes about 1 ms
 )
 
 func main() {
@@ -34,8 +34,8 @@ func main() {
 	}
 }
 
-// dayDeals are the deals for the simulated day. They are the same 6 deals as in
-// README.md, but with bigger budgets because the day is busier.
+// dayDeals returns the deals for the simulated day. They are the 6 deals from
+// README.md. The budgets are larger because the day has more traffic.
 func dayDeals() *deals.Store {
 	everywhere := []string{"DE", "US"}
 	return deals.NewStore(
@@ -62,13 +62,13 @@ func dayDeals() *deals.Store {
 }
 
 type results struct {
-	asksPerOpen         []int // how many questions each app open asked
-	affordableButHidden int   // app opens that left out a deal that was clearly affordable
-	firstBudgetUsedUpAt int   // minute of the day, -1 if never
+	requestsPerOpen     []int // the number of requests that each app open sent
+	affordableButHidden int   // the number of app opens that removed an affordable deal
+	firstBudgetUsedUpAt int   // the minute of the day; -1 if no budget was used
 }
 
-// playTheDay sends the app opens to the 4 servers. Each traveller books the
-// first deal on their list, if there is one.
+// playTheDay sends the app opens to the 4 servers.
+// Every second traveller books the first deal on the list, if the list is not empty.
 func playTheDay(store *deals.Store, svc *stats.Service) results {
 	var (
 		mu sync.Mutex
@@ -86,7 +86,7 @@ func playTheDay(store *deals.Store, svc *stats.Service) results {
 
 				before := f.Stats.Calls()
 				list := f.List(country)
-				asked := f.Stats.Calls() - before
+				sent := f.Stats.Calls() - before
 				hidden := affordableButHidden(store, svc, country, list)
 
 				usedUp := false
@@ -94,10 +94,10 @@ func playTheDay(store *deals.Store, svc *stats.Service) results {
 					f.Book(list[0], country)
 					usedUp = budgetUsedUp(svc, list[0], country)
 				}
-				svc.ConfirmAllButNewest(waiting)
+				svc.ConfirmAllButNewest(unconfirmed)
 
 				mu.Lock()
-				r.asksPerOpen = append(r.asksPerOpen, asked)
+				r.requestsPerOpen = append(r.requestsPerOpen, sent)
 				if hidden {
 					r.affordableButHidden++
 				}
@@ -112,8 +112,9 @@ func playTheDay(store *deals.Store, svc *stats.Service) results {
 	return r
 }
 
-// affordableButHidden says whether the list left out a deal that had used
-// less than 80% of its budget and whose partner had used less than 80% of its limit.
+// affordableButHidden returns true if the list does not have an affordable deal.
+// A deal is affordable if it has used less than 80% of its daily budget, and its
+// partner has used less than 80% of its partner daily limit.
 func affordableButHidden(store *deals.Store, svc *stats.Service, country string, list []deals.Deal) bool {
 	shown := map[string]bool{}
 	for _, d := range list {
@@ -137,12 +138,12 @@ func budgetUsedUp(svc *stats.Service, d deals.Deal, country string) bool {
 
 func checkTheRules(store *deals.Store, svc *stats.Service, r results) bool {
 	total := 0
-	for _, a := range r.asksPerOpen {
-		total += a
+	for _, n := range r.requestsPerOpen {
+		total += n
 	}
-	sort.Ints(r.asksPerOpen)
-	p99ms := r.asksPerOpen[len(r.asksPerOpen)*99/100] * msPerAsk
-	avgAsks := float64(total) / float64(len(r.asksPerOpen))
+	sort.Ints(r.requestsPerOpen)
+	p99ms := r.requestsPerOpen[len(r.requestsPerOpen)*99/100] * msPerRequest
+	avgRequests := float64(total) / float64(len(r.requestsPerOpen))
 
 	worstName, worstSpent, worstBudget := "", int64(0), int64(1)
 	consider := func(name string, spent, budget int64) {
@@ -157,38 +158,38 @@ func checkTheRules(store *deals.Store, svc *stats.Service, r results) bool {
 	}
 	for id := range partners {
 		p := store.Partner(id)
-		consider(p.Name+" (all deals together)", svc.TruePartnerBookedTodayCents(id), p.DailyLimitCents)
+		consider(p.Name+" (partner daily limit)", svc.TruePartnerBookedTodayCents(id), p.DailyLimitCents)
 	}
 	overPct := float64(worstSpent-worstBudget) * 100 / float64(worstBudget)
 
-	fmt.Printf("A simulated day: %d app opens on %d servers. Partners confirm bookings late,\n", appOpens, servers)
-	fmt.Printf("and 1 in %d questions to the shared counter service gets no answer.\n\n", failEvery)
+	fmt.Printf("Simulated day: %d app opens on %d servers. Confirmations arrive late.\n", appOpens, servers)
+	fmt.Printf("The shared counter service does not answer 1 in %d requests.\n\n", failEvery)
 
-	ok := check("Each app open asks the shared counter service at most once",
-		total <= len(r.asksPerOpen),
-		fmt.Sprintf("On average it asked %.1f times.", avgAsks))
-	ok = check("99 out of 100 app opens take 15 ms or less",
+	ok := check("1. Each app open sends at most 1 request",
+		total <= len(r.requestsPerOpen),
+		fmt.Sprintf("Each app open sent %.1f requests on average.", avgRequests))
+	ok = check("2. 99 of 100 app opens take 15 ms or less",
 		p99ms <= 15,
-		fmt.Sprintf("The slowest 1 in 100 took %d ms.", p99ms)) && ok
-	ok = check("No deal or partner goes more than 5% over its daily budget",
+		fmt.Sprintf("The slowest 1 in 100 app opens took %d ms.", p99ms)) && ok
+	ok = check("3. No deal or partner spends more than 105% of its budget",
 		overPct <= 5,
-		fmt.Sprintf("The worst was %s: spent $%.2f of $%.2f (%.1f%% over).",
+		fmt.Sprintf("%s spent $%.2f. Its budget is $%.2f. That is %.1f%% over.",
 			worstName, float64(worstSpent)/100, float64(worstBudget)/100, overPct)) && ok
-	ok = check("Travellers always see the deals that can still be afforded",
+	ok = check("4. Affordable deals stay on the list",
 		r.affordableButHidden == 0,
-		fmt.Sprintf("%d app opens left out a deal that had used less than 80%% of its budget.", r.affordableButHidden)) && ok
+		fmt.Sprintf("%d app opens removed a deal that had used less than 80%% of its budget.", r.affordableButHidden)) && ok
 
 	if r.firstBudgetUsedUpAt >= 0 {
-		fmt.Printf("\nINFO   The first daily budget was used up at %02d:%02d.\n", r.firstBudgetUsedUpAt/60, r.firstBudgetUsedUpAt%60)
+		fmt.Printf("\nINFO   The first deal used its daily budget at %02d:%02d.\n", r.firstBudgetUsedUpAt/60, r.firstBudgetUsedUpAt%60)
 	}
 	return ok
 }
 
 func check(rule string, pass bool, detail string) bool {
 	if pass {
-		fmt.Printf("CHECK  %-62s PASS\n", rule)
+		fmt.Printf("CHECK  %-58s PASS\n", rule)
 	} else {
-		fmt.Printf("CHECK  %-62s FAIL  %s\n", rule, detail)
+		fmt.Printf("CHECK  %-58s FAIL  %s\n", rule, detail)
 	}
 	return pass
 }

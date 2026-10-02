@@ -7,7 +7,7 @@ import (
 	"tripmiles/stats"
 )
 
-// exampleDeals are the 6 deals from the diagram in README.md.
+// exampleDeals returns the 6 deals from the diagram in README.md.
 func exampleDeals() *deals.Store {
 	everywhere := []string{"DE", "US"}
 	return deals.NewStore(
@@ -60,29 +60,29 @@ func book(f *Feed, id, country string, times int) {
 func TestDealIsHiddenWhenItsBudgetIsUsedUp(t *testing.T) {
 	f, svc := newFeed()
 	book(f, "skyline-lisbon", "DE", 20) // 20 x $5 = $100
-	svc.ConfirmAllButNewest(0)          // all confirmed
+	svc.ConfirmAllButNewest(0)          // The partner confirms all bookings.
 	if shows(f.List("DE"), "skyline-lisbon") {
-		t.Fatal("Skyline Air: Berlin to Lisbon has spent its whole $100 budget, all confirmed, but was still shown.")
+		t.Fatal("Skyline Air: Berlin to Lisbon has $100 of confirmed spend. Its daily budget is $100. The deal is still on the list.")
 	}
 }
 
 func TestPartnerDealsAreHiddenWhenThePartnerLimitIsUsedUp(t *testing.T) {
 	f, svc := newFeed()
-	book(f, "nordic-oslo", "US", 40) // 40 x $4 = $160, over Nordic Rail's $150 daily limit
+	book(f, "nordic-oslo", "US", 40) // 40 x $4 = $160. The partner daily limit of Nordic Rail is $150.
 	svc.ConfirmAllButNewest(0)
 	list := f.List("US")
 	if shows(list, "nordic-oslo") || shows(list, "nordic-stockholm") {
-		t.Fatal("Nordic Rail has used up its $150 daily limit, but its deals were still shown.")
+		t.Fatal("Nordic Rail has $160 of confirmed spend. Its partner daily limit is $150. Its deals are still on the list.")
 	}
 }
 
 func TestBookingsThatAreNotConfirmedYetStillCount(t *testing.T) {
 	f, svc := newFeed()
 	book(f, "skyline-lisbon", "DE", 20) // 20 x $5 = $100
-	svc.ConfirmAllButNewest(4)          // 16 confirmed ($80), 4 still waiting
+	svc.ConfirmAllButNewest(4)          // 16 bookings are confirmed ($80). 4 bookings are unconfirmed.
 	if shows(f.List("DE"), "skyline-lisbon") {
-		t.Fatal("Skyline Air: Berlin to Lisbon has 20 bookings at the German price of $5, which is its whole $100 budget. " +
-			"Only 16 are confirmed ($80) and 4 are still waiting, but every booking counts. The deal was still shown.")
+		t.Fatal("Skyline Air: Berlin to Lisbon has 20 bookings at the German price of $5. That is $100, the full daily budget. " +
+			"16 bookings are confirmed ($80). 4 bookings are unconfirmed ($20). All bookings count. The deal is still on the list.")
 	}
 }
 
@@ -91,7 +91,7 @@ func TestOpeningTheAppAsksTheCounterServiceAtMostOnce(t *testing.T) {
 	before := f.Stats.Calls()
 	f.List("DE")
 	if asked := f.Stats.Calls() - before; asked > 1 {
-		t.Fatalf("Opening the app asked the shared counter service %d times. It should ask at most once.", asked)
+		t.Fatalf("One app open sent %d requests to the shared counter service. The limit is 1 request.", asked)
 	}
 }
 
@@ -99,15 +99,15 @@ func TestDealOverBudgetIsHiddenWhenTheCounterServiceDoesNotAnswer(t *testing.T) 
 	f, svc := newFeed()
 	book(f, "skyline-lisbon", "DE", 20)
 	svc.ConfirmAllButNewest(0)
-	svc.FailEveryNth = 1 // from now on, no question gets an answer
+	svc.FailEveryNth = 1 // From now on, the service does not answer any request.
 	if shows(f.List("DE"), "skyline-lisbon") {
-		t.Fatal("The shared counter service did not answer, and a deal that had used up its budget was still shown.")
+		t.Fatal("The shared counter service did not answer. Skyline Air: Berlin to Lisbon had used its $100 daily budget. The deal is still on the list.")
 	}
 }
 
 func TestAffordableDealsAreShown(t *testing.T) {
 	f, _ := newFeed()
 	if got := len(f.List("DE")); got != 6 {
-		t.Fatalf("Nothing has been booked yet, so all 6 deals should be shown, but %d were.", got)
+		t.Fatalf("There are no bookings yet. All 6 deals must be on the list. The list has %d deals.", got)
 	}
 }

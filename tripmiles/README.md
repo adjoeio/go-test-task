@@ -1,24 +1,38 @@
-# TripMiles — pre-interview task
+# TripMiles: pre-interview task
 
-TripMiles shows travellers a list of travel deals, such as cheap flights and hotel
-nights. Travel companies, which we call **partners**, pay us a fixed price every
-time a traveller books one of their deals. Each partner also sets a **daily
-budget** for each deal: the most they will pay us for that deal in one day.
+TripMiles is a small app that shows travel deals to travellers.
+You are on the **Offers team**. Your team builds the list of deals that a traveller sees.
 
-You are on the **Offers team**. Your team builds the list of deals that a traveller
-sees when they open the app. You must never show a deal whose budget is already
-used up, because the partner will not pay for bookings over budget.
+The app works. But under real traffic, three of its four rules fail.
+Your task is to change the code so that all four rules pass.
 
-The app works today. Under real traffic, though, it asks the shared counter service
-far too many questions, it is slow, and some deals go over their budget.
+- **Time:** about 1 to 2 hours.
+- **Tools:** use any tools that you like, including AI.
+- **Interview:** you explain your changes and why you made them.
+  Then we talk about how the same design works at a much larger scale.
 
-**Time:** about 1–2 hours. Use any tools you like, including AI. In the interview
-you will walk us through your changes and why you made them, and then we will talk
-about how this would work at a much larger scale.
+## Words used in this task
+
+- **Partner:** a travel company, for example an airline. Skyline Air is a partner.
+- **Deal:** an offer from a partner, for example a cheap flight.
+- **Price:** the amount that the partner pays us for one booking.
+  Some countries have a different price. For example, travellers in Germany cost $5, not $4.
+- **Daily budget:** the most that the partner pays for one deal in one day.
+  When the budget is used, the deal must not be on the list.
+- **Partner daily limit:** the most that a partner pays for all its deals together in one day.
+- **Confirmation:** a message from the partner that says a booking is valid.
+  A confirmation arrives a few minutes after the booking.
+- **Confirmed spend:** the money from bookings that the partner has confirmed.
+- **Unconfirmed booking:** a valid booking whose confirmation has not arrived yet.
+- **Shared counter service:** the service that counts bookings and confirmed spend.
+  All 4 app servers use this one service.
+- **Request:** one call from an app server to the shared counter service.
+  Each request goes over the network, so each request is slow.
+  Sometimes the service does not answer a request.
 
 ## How it works today
 
-The example below follows one traveller in Germany who opens the app.
+The diagram follows one traveller in Germany who opens the app.
 
 ```mermaid
 sequenceDiagram
@@ -77,40 +91,60 @@ sequenceDiagram
     Note over T,P: Business requirement:<br/><br/>• Count every booking, including unconfirmed bookings.<br/>• Use the actual price for the traveller's country.<br/>• For Germany, the calculation should be $80 + (4 × $5) = $100.<br/>• The deal should therefore have been hidden before the booking.<br/>• Ask the shared counter service at most once per app open.<br/>• If the service is unavailable, do not risk exceeding the budget.<br/>• At the same time, keep showing deals that are clearly affordable.
 ```
 
-Where the 30 requests come from: the budget check asks four questions for each
-deal (money confirmed and number of bookings, both for today and in total), and one
-more question about the partner. Six deals times five questions is 30.
+The diagram shows 30 requests for one app open. They come from two checks:
+
+- The **deal budget check** sends 4 requests for each deal:
+  confirmed spend today, bookings today, confirmed spend in total, and bookings in total.
+- The **partner limit check** sends 1 request for each deal.
+- 6 deals × 5 requests = 30 requests.
 
 ## Who owns what
 
-| In the diagram | Folder | Team | What it does |
+| Name in the diagram | Folder | Team | What it does |
 |---|---|---|---|
-| Deal Settings | `deals/` | Partner Management | Stores each deal's price, its price in each country, and its budgets. Also stores each partner's daily limit for all its deals together. |
-| Deal Feed | `feed/feed.go` | Offers (you) | Builds the list of deals a traveller sees. |
-| Budget Check | `feed/checks.go` | Offers (you) | Leaves out deals whose budget is used up. **This is the code to improve.** |
-| Shared Counter Service | `stats/` | Platform | Remembers bookings and confirmed money. All app servers share it. Every question to it is a slow network call, and sometimes it does not answer. |
-| — | `cmd/sim/` | — | Plays one busy day and checks the rules below. |
+| Deal Settings | `deals/` | Partner Management | Stores the price, the country prices and the budgets of each deal. Stores the partner daily limit of each partner. |
+| Deal Feed | `feed/feed.go` | Offers (your team) | Builds the list of deals for one app open. |
+| Budget Check | `feed/checks.go` | Offers (your team) | Contains the deal budget check and the partner limit check. **Change this file.** |
+| Shared Counter Service | `stats/` | Platform | Counts bookings and confirmed spend. Each request is slow. Sometimes it does not answer. |
+| (not in the diagram) | `cmd/sim/` | none | Runs one busy day on 4 servers. Then it checks the four rules. |
 
-You may change any file if you need to, but be ready to explain why.
+You can change other files too. If you do, be ready to explain why.
 
-## Make these four rules true
+## The four rules
 
-1. Each time a traveller opens the app, the shared counter service is asked at most once.
-2. Opening the app is fast: 99 out of 100 app opens take 15 ms or less.
-3. No deal, and no partner, goes more than 5% over its daily budget, even when
-   confirmations arrive late and the counter service sometimes does not answer.
-4. Travellers always see the deals that can still be afforded.
+1. Each app open sends at most 1 request to the shared counter service.
+2. 99 of 100 app opens take 15 ms or less.
+3. No deal and no partner spends more than 105% of its budget.
+   This must be true when confirmations arrive late.
+   It must also be true when the shared counter service does not answer.
+4. Affordable deals stay on the list.
 
 ## Run it
 
-You only need Go 1.24 or newer. No Docker and no network are needed.
+You need Go 1.24 or newer. You do not need Docker or a network connection.
 
-```sh
-cd tripmiles
-go test ./...        # the rules as small tests
-go run ./cmd/sim     # one busy day; prints PASS or FAIL for each rule
-```
+1. Go to the task folder:
+   ```sh
+   cd tripmiles
+   ```
+2. Run the tests:
+   ```sh
+   go test ./...
+   ```
+3. Run the simulated day:
+   ```sh
+   go run ./cmd/sim
+   ```
+4. Run the tests with the race detector:
+   ```sh
+   go test -race ./...
+   ```
 
-Today, three tests fail, and the simulator shows three of the four rules failing.
-You are done when every test passes and the simulator prints PASS four times.
-Please also run `go test -race ./...`.
+Today, 3 tests fail and 3 tests pass. The simulator shows `FAIL` for rules 1, 2 and 3.
+
+## You are done when
+
+- [ ] `go test ./...` shows no failures.
+- [ ] `go run ./cmd/sim` shows `PASS` for all four rules.
+- [ ] `go test -race ./...` shows no data races.
+- [ ] You can explain each change that you made.
