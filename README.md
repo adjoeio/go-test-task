@@ -1,4 +1,7 @@
 # go-test-task
+
+> **v2:** the pre-interview task is in [`offerhub/`](offerhub/README.md). It needs only Go, no Docker.
+
 **how to use**
 
 - To start, please install: docker, docker-compose and go
