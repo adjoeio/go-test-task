@@ -1,4 +1,7 @@
 # go-test-task
+
+> **v4:** The pre-interview task is in [`tripmiles/`](tripmiles/README.md). You need only Go. You do not need Docker.
+
 **how to use**
 
 - To start, please install: docker, docker-compose and go
